@@ -123,26 +123,41 @@ const zeroTransaction = async (payment) => {
         if (note.indexOf('calcInvestment') > -1) {
           const currentBalance = await getAccountBalance(account);
           const simpleFinID = await getSimpleFinID(account);
-          const simplefinBalance = parseInt(simplefinBalances[simpleFinID] * 100);
-          const diff = simplefinBalance - currentBalance;
-
-          console.log('Account:', account.name);
-          console.log('Simplefin Balance:', simplefinBalance);
-          console.log('Current Balance:', currentBalance);
-          console.log('Difference:', diff);
-
-          if (diff) {
-            await api.importTransactions(account.id, [{
-              date: new Date(),
-              payee: payeeId,
-              amount: diff,
-              cleared: true,
-              reconciled: true,
-              category: categoryId,
-              notes: `Update investment balance to ${simplefinBalance / 100}`,
-            }]);
+          
+          // 1. Get the base fetched balance from SimpleFIN
+          let targetBalance = parseInt(simplefinBalances[simpleFinID] * 100);
+        
+          // 2. Look up the offset account balance (e.g., matching by name or environment variable)
+          // Example using environment variable OFFSET_ACCOUNT_NAME:
+          const offsetAccountName = process.env.OFFSET_ACCOUNT_NAME;
+          if (offsetAccountName) {
+            const offsetAccount = accounts.find(a => a.name === offsetAccountName);
+            if (offsetAccount) {
+              const offsetBalance = await getAccountBalance(offsetAccount);
+              targetBalance = targetBalance - Math.abs(offsetBalance); 
+            }
           }
+
+        // 3. Calculate the required adjustment
+        const diff = targetBalance - currentBalance;
+      
+        console.log('Account:', account.name);
+        console.log('Target Balance:', targetBalance);
+        console.log('Current Balance:', currentBalance);
+        console.log('Difference:', diff);
+      
+        if (diff) {
+          await api.importTransactions(account.id, [{
+            date: new Date(),
+            payee: payeeId,
+            amount: diff,
+            cleared: true,
+            reconciled: true,
+            category: categoryId,
+            notes: `Update investment balance to ${targetBalance / 100}`,
+          }]);
         }
+      }
       }
     }
   }
