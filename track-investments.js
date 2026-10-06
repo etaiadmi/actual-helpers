@@ -124,40 +124,60 @@ const zeroTransaction = async (payment) => {
           const currentBalance = await getAccountBalance(account);
           const simpleFinID = await getSimpleFinID(account);
           
-          // 1. Get the base fetched balance from SimpleFIN
-          let targetBalance = parseInt(simplefinBalances[simpleFinID] * 100);
-        
-          // 2. Look up the offset account balance (e.g., matching by name or environment variable)
-          // Example using environment variable OFFSET_ACCOUNT_NAME:
+          const rawSimpleFinBalance = simplefinBalances[simpleFinID];
+          if (rawSimpleFinBalance === undefined || isNaN(rawSimpleFinBalance)) {
+            console.log(`Skipping ${account.name}: No valid SimpleFIN balance found.`);
+            continue;
+          }
+
+          let targetBalance = Math.round(rawSimpleFinBalance * 100);
+
+          const targetAccountName = process.env.TARGET_ACCOUNT_NAME;
           const offsetAccountName = process.env.OFFSET_ACCOUNT_NAME;
-          if (offsetAccountName) {
-            const offsetAccount = accounts.find(a => a.name === offsetAccountName);
-            if (offsetAccount) {
-              const offsetBalance = await getAccountBalance(offsetAccount);
-              targetBalance = targetBalance - Math.abs(offsetBalance); 
+
+          // Check if this account matches TARGET_ACCOUNT_NAME
+          if (
+            targetAccountName &&
+            account.name.trim().toLowerCase() === targetAccountName.trim().toLowerCase()
+          ) {
+            if (offsetAccountName) {
+              const offsetAccount = accounts.find(
+                a => a.name.trim().toLowerCase() === offsetAccountName.trim().toLowerCase()
+              );
+
+              if (offsetAccount) {
+                const offsetBalance = await getAccountBalance(offsetAccount);
+                console.log(
+                  `[OFFSET] Subtracting ${offsetAccount.name} balance (${offsetBalance} cents) from ${account.name}`
+                );
+                
+                // Subtract the absolute value of the offset account balance
+                targetBalance = targetBalance - Math.abs(offsetBalance);
+              } else {
+                console.log(`[OFFSET WARNING] Offset account '${offsetAccountName}' not found.`);
+              }
             }
           }
 
-        // 3. Calculate the required adjustment
-        const diff = targetBalance - currentBalance;
-      
-        console.log('Account:', account.name);
-        console.log('Target Balance:', targetBalance);
-        console.log('Current Balance:', currentBalance);
-        console.log('Difference:', diff);
-      
-        if (diff) {
-          await api.importTransactions(account.id, [{
-            date: new Date(),
-            payee: payeeId,
-            amount: diff,
-            cleared: true,
-            reconciled: true,
-            category: categoryId,
-            notes: `Update investment balance to ${targetBalance / 100}`,
-          }]);
+          const diff = targetBalance - currentBalance;
+
+          console.log('Account:', account.name);
+          console.log('Target Balance:', targetBalance);
+          console.log('Current Balance:', currentBalance);
+          console.log('Difference:', diff);
+
+          if (diff) {
+            await api.importTransactions(account.id, [{
+              date: new Date(),
+              payee: payeeId,
+              amount: diff,
+              cleared: true,
+              reconciled: true,
+              category: categoryId,
+              notes: `Update investment balance to ${targetBalance / 100}`,
+            }]);
+          }
         }
-      }
       }
     }
   }
