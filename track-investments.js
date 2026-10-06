@@ -79,7 +79,7 @@ const zeroTransaction = async (payment) => {
     payment.id,
     { 'amount': 0 }
   );
-}
+};
 
 (async () => {
   await openBudget();
@@ -91,6 +91,9 @@ const zeroTransaction = async (payment) => {
   const simplefinBalances = await getSimplefinBalances();
   if (simplefinBalances) {
     const accounts = await api.getAccounts();
+    const targetAccountName = (process.env.TARGET_ACCOUNT_NAME || 'Schwab Brokerage').trim().toLowerCase();
+    const offsetAccountName = (process.env.OFFSET_ACCOUNT_NAME || 'Savings').trim().toLowerCase();
+
     for (const account of accounts) {
       if (account.closed) {
         continue;
@@ -102,7 +105,7 @@ const zeroTransaction = async (payment) => {
         const data = await getTransactions(account);
 
         if (note.indexOf('zeroSmall') > -1) {
-          const payments = data.filter(payment => payment.amount > -10000 && payment.amount < 10000 && payment.amount != 0 && payment.category == categoryId)
+          const payments = data.filter(payment => payment.amount > -10000 && payment.amount < 10000 && payment.amount != 0 && payment.category == categoryId);
           for (const payment of payments) {
             if (shouldDrop(payment)) {
               await zeroTransaction(payment);
@@ -111,7 +114,7 @@ const zeroTransaction = async (payment) => {
         }
 
         if (note.indexOf('dropPayments') > -1) {
-          const payments = data.filter(payment => payment.amount < 0)
+          const payments = data.filter(payment => payment.amount < 0);
           for (const payment of payments) {
             if (shouldDrop(payment)) {
               await zeroTransaction(payment);
@@ -122,24 +125,26 @@ const zeroTransaction = async (payment) => {
         if (note.indexOf('calcInvestment') > -1) {
           const currentBalance = await getAccountBalance(account);
           const simpleFinID = await getSimpleFinID(account);
-          
+
+          if (!simpleFinID) {
+            console.log(`Skipping ${account.name}: No SimpleFIN ID found in account notes.`);
+            continue;
+          }
+
           const rawSimpleFinBalance = simplefinBalances[simpleFinID];
           if (rawSimpleFinBalance === undefined || isNaN(rawSimpleFinBalance)) {
-            console.log(`Skipping ${account.name}: No valid SimpleFIN balance found.`);
+            console.log(`Skipping ${account.name}: SimpleFIN ID '${simpleFinID}' not found or balance is NaN.`);
             continue;
           }
 
           let targetBalance = Math.round(rawSimpleFinBalance * 100);
+          const cleanAccountName = account.name.trim().toLowerCase();
+          const isTargetAccount = cleanAccountName === targetAccountName;
 
-          const targetAccountName = process.env.TARGET_ACCOUNT_NAME || 'Schwab Brokerage';
-          const offsetAccountName = process.env.OFFSET_ACCOUNT_NAME || 'Savings';
-
-          const isTargetAccount = account.name.trim().toLowerCase() === targetAccountName.trim().toLowerCase();
-
-          // Apply offset ONLY if this account matches TARGET_ACCOUNT_NAME
+          // Apply offset ONLY if this specific account is the target account (Schwab Brokerage)
           if (isTargetAccount && offsetAccountName) {
             const offsetAccount = accounts.find(
-              a => a.name.trim().toLowerCase() === offsetAccountName.trim().toLowerCase()
+              a => a.name.trim().toLowerCase() === offsetAccountName
             );
 
             if (offsetAccount) {
@@ -149,13 +154,13 @@ const zeroTransaction = async (payment) => {
               );
               targetBalance = targetBalance - Math.abs(offsetBalance);
             } else {
-              console.log(`[OFFSET WARNING] Could not find offset account: '${offsetAccountName}'`);
+              console.log(`[OFFSET WARNING] Could not find offset account: '${process.env.OFFSET_ACCOUNT_NAME || 'Savings'}'`);
             }
           }
 
           const diff = targetBalance - currentBalance;
 
-          console.log('--- Account Sync ---');
+          console.log('\n--- Account Sync ---');
           console.log('Account:', account.name);
           console.log('Target Balance (cents):', targetBalance);
           console.log('Current Balance (cents):', currentBalance);
@@ -169,7 +174,7 @@ const zeroTransaction = async (payment) => {
               cleared: true,
               reconciled: true,
               category: categoryId,
-              notes: `Update balance to ${(targetBalance / 100).toFixed(2)}${isTargetAccount ? ` (Offset: ${offsetAccountName})` : ''}`,
+              notes: `Update balance to ${(targetBalance / 100).toFixed(2)}${isTargetAccount ? ` (Offset: ${process.env.OFFSET_ACCOUNT_NAME || 'Savings'})` : ''}`,
             }]);
           }
         }
