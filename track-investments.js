@@ -121,17 +121,6 @@ const zeroTransaction = async (payment) => {
         }
 
         if (note.indexOf('calcInvestment') > -1) {
-          const targetAccountName = process.env.TARGET_ACCOUNT_NAME;
-          const offsetAccountName = process.env.OFFSET_ACCOUNT_NAME;
-
-          // Skip any account that doesn't match TARGET_ACCOUNT_NAME if specified
-          if (
-            targetAccountName &&
-            account.name.trim().toLowerCase() !== targetAccountName.trim().toLowerCase()
-          ) {
-            continue;
-          }
-
           const currentBalance = await getAccountBalance(account);
           const simpleFinID = await getSimpleFinID(account);
           
@@ -143,40 +132,45 @@ const zeroTransaction = async (payment) => {
 
           let targetBalance = Math.round(rawSimpleFinBalance * 100);
 
-          // Apply offset if OFFSET_ACCOUNT_NAME is set
-          if (offsetAccountName) {
-            const offsetAccount = accounts.find(
-              a => a.name.trim().toLowerCase() === offsetAccountName.trim().toLowerCase()
-            );
+          const targetAccountName = process.env.TARGET_ACCOUNT_NAME || 'Schwab Brokerage';
+          const offsetAccountName = process.env.OFFSET_ACCOUNT_NAME || 'Savings';
 
-            if (offsetAccount) {
-              const offsetBalance = await getAccountBalance(offsetAccount);
-              console.log(
-                `[OFFSET] Subtracting ${offsetAccount.name} balance (${offsetBalance} cents) from ${account.name}`
+          // ONLY apply offset subtraction if this specific account is the target account
+          if (account.name.trim().toLowerCase() === targetAccountName.trim().toLowerCase()) {
+            if (offsetAccountName) {
+              const offsetAccount = accounts.find(
+                a => a.name.trim().toLowerCase() === offsetAccountName.trim().toLowerCase()
               );
-              
-              targetBalance = targetBalance - Math.abs(offsetBalance);
-            } else {
-              console.log(`[OFFSET WARNING] Offset account '${offsetAccountName}' not found.`);
+
+              if (offsetAccount) {
+                const offsetBalance = await getAccountBalance(offsetAccount);
+                console.log(
+                  `[OFFSET APPLIED] Subtracting ${offsetAccount.name} balance (${offsetBalance} cents) from ${account.name}`
+                );
+                targetBalance = targetBalance - Math.abs(offsetBalance);
+              } else {
+                console.log(`[OFFSET WARNING] Could not find offset account: '${offsetAccountName}'`);
+              }
             }
           }
 
           const diff = targetBalance - currentBalance;
 
+          console.log('--- Account Sync ---');
           console.log('Account:', account.name);
-          console.log('Target Balance:', targetBalance);
-          console.log('Current Balance:', currentBalance);
-          console.log('Difference:', diff);
+          console.log('Target Balance (cents):', targetBalance);
+          console.log('Current Balance (cents):', currentBalance);
+          console.log('Difference (cents):', diff);
 
-          if (diff) {
+          if (diff !== 0) {
             await api.importTransactions(account.id, [{
-              date: new Date(),
+              date: new Date().toISOString().split('T')[0], // YYYY-MM-DD format
               payee: payeeId,
               amount: diff,
               cleared: true,
               reconciled: true,
               category: categoryId,
-              notes: `Update investment balance to ${targetBalance / 100}`,
+              notes: `Update balance to ${(targetBalance / 100).toFixed(2)} (Offset: ${account.name.trim().toLowerCase() === targetAccountName.trim().toLowerCase() ? offsetAccountName : 'None'})`,
             }]);
           }
         }
